@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TikTok 批量发布管理</title>
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; padding: 24px; background: #f5f5f5; color: #333; }
+    h1 { margin-bottom: 20px; }
+    h2 { margin: 24px 0 12px; font-size: 18px; }
+
+    /* 卡片 */
+    .card { background: #fff; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+
+    /* 表单 */
+    label { display: block; font-weight: 600; margin-bottom: 6px; }
+    input[type="text"] { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; }
+    .env-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; }
+
+    /* 按钮 */
+    .btn { border: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; cursor: pointer; transition: background .2s; }
+    .btn-primary { background: #007bff; color: #fff; }
+    .btn-primary:hover { background: #0056b3; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .btn-danger:hover { background: #a71d2a; }
+    .btn-sm { padding: 4px 10px; font-size: 12px; }
+
+    /* 拖拽上传 */
+    #drop-area { border: 2px dashed #ccc; border-radius: 8px; padding: 40px; text-align: center; cursor: pointer; transition: border-color .2s; }
+    #drop-area.hover { border-color: #007bff; background: #f0f7ff; }
+
+    /* 文件列表 */
+    .file-item { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid #eee; }
+    .file-item:last-child { border-bottom: none; }
+
+    /* 消息 */
+    #message-box { display: none; position: fixed; top: 20px; right: 20px; background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 14px 20px; border-radius: 6px; z-index: 1000; max-width: 400px; box-shadow: 0 4px 12px rgba(0,0,0,.15); }
+  </style>
+</head>
+<body>
+
+  <h1>🎬 TikTok 批量发布管理</h1>
+
+  <div id="message-box"></div>
+
+  <!-- 环境配置 -->
+  <div class="card">
+    <h2>① 配置 AdsPower 环境</h2>
+    <div class="env-grid">
+      {% for i in range(1, 11) %}
+      <div>
+        <label for="env_id_{{ i }}">环境 {{ i }}</label>
+        <input type="text" id="env_id_{{ i }}" name="environment_ids[]" placeholder="输入环境 ID">
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- 文案 -->
+  <div class="card">
+    <h2>② 填写文案 / 标签</h2>
+    <input type="text" id="editor-text" placeholder="输入要发布的内容，空格分隔标签">
+  </div>
+
+  <!-- 上传 -->
+  <div class="card">
+    <h2>③ 上传视频</h2>
+    <div id="drop-area">
+      <p>📂 拖拽视频到此处，或点击选择文件</p>
+      <input type="file" id="file-input" multiple accept="video/*" style="display:none">
+    </div>
+    <h3 style="margin-top:16px; font-size:15px;">已上传文件</h3>
+    <div id="file-list" style="margin-top:8px;"><p style="color:#999">暂无文件</p></div>
+    <button class="btn btn-danger btn-sm" id="delete-all-button" style="margin-top:10px;">删除全部视频</button>
+  </div>
+
+  <!-- 启动 -->
+  <div class="card">
+    <button class="btn btn-primary" id="start-environments-button" style="width:100%; font-size:16px; padding:14px;">
+      🚀 启动批量发布
+    </button>
+  </div>
+
+  <script>
+    const $msg = $('#message-box');
+    function showMessage(html) { $msg.html(html).fadeIn(300).delay(4000).fadeOut(300); }
+
+    // ---- 文件列表 ----
+    function loadFileList() {
+      $.get('/list_files', function (data) {
+        const $list = $('#file-list').empty();
+        if (data.status !== 'success' || !data.files.length) {
+          $list.html('<p style="color:#999">暂无文件</p>');
+          return;
+        }
+        data.files.forEach(function (name) {
+          $list.append(
+            '<div class="file-item">' +
+              '<span>' + name + '</span>' +
+              '<button class="btn btn-danger btn-sm del-btn" data-name="' + name + '">删除</button>' +
+            '</div>'
+          );
+        });
+        $('.del-btn').off('click').on('click', function () { deleteFile($(this).data('name')); });
+      });
+    }
+    setInterval(loadFileList, 2000);
+    $(loadFileList);
+
+    // ---- 拖拽 / 选择上传 ----
+    const $drop = $('#drop-area');
+    const $fileInput = $('#file-input');
+    $drop.on('dragover', function (e) { e.preventDefault(); $drop.addClass('hover'); });
+    $drop.on('dragleave', function () { $drop.removeClass('hover'); });
+    $drop.on('drop', function (e) { e.preventDefault(); $drop.removeClass('hover'); handleFiles(e.originalEvent.dataTransfer.files); });
+    $drop.on('click', function () { $fileInput.click(); });
+    $fileInput.on('change', function () { handleFiles(this.files); });
+
+    function handleFiles(files) {
+      const fd = new FormData();
+      for (let i = 0; i < files.length; i++) fd.append('files[]', files[i]);
+      $.ajax({ url: '/upload', type: 'POST', data: fd, processData: false, contentType: false,
+        success: function (d) { d.status === 'success' ? showMessage('✅ 上传成功: ' + d.filenames.join(', ')) : showMessage('❌ 上传失败'); },
+        error: function () { showMessage('❌ 上传出错'); }
+      });
+    }
+
+    // ---- 删除 ----
+    function deleteFile(name) {
+      $.post('/delete_file', { filename: name }, function (d) {
+        if (d.status === 'success') { showMessage('🗑️ 已删除 ' + name); loadFileList(); }
+      });
+    }
+    $('#delete-all-button').on('click', function () {
+      $.post('/delete_all_files', function (d) {
+        if (d.status === 'success') { showMessage('🗑️ 已删除全部文件'); loadFileList(); }
+      });
+    });
+
+    // ---- 启动环境 ----
+    $('#start-environments-button').on('click', function () {
+      const envIds = [];
+      $('input[name="environment_ids[]"]').each(function () { if (this.value.trim()) envIds.push(this.value.trim()); });
+      if (!envIds.length) { showMessage('⚠️ 请至少填写一个环境 ID'); return; }
+
+      $.get('/list_files', function (data) {
+        if (data.status !== 'success' || !data.files.length) { showMessage('⚠️ 请先上传视频文件'); return; }
+        const files = data.files.slice(0, envIds.length);
+        if (files.length < envIds.length) showMessage('⚠️ 视频数量少于环境数，部分环境将跳过');
+
+        $.post('/start_environments', {
+          environment_ids: envIds, files: files, editor_text: $('#editor-text').val()
+        }, function (d) {
+          if (d.status === 'success') showMessage('✅ ' + d.messages.join('<br>'));
+          else showMessage('❌ 启动失败');
+        });
+      });
+    });
+  </script>
+</body>
+</html>
