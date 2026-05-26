@@ -65,8 +65,8 @@ pip install -r requirements.txt
 3. **打开浏览器**访问 `http://localhost:9866`
 
 4. 在页面上：
-   - 填写 AdsPower 环境 ID（最多 10 个）
-   - 输入文案 / 标签
+   - 填写 AdsPower 环境 ID
+   - 输入文案 / 标签，按需定时发布
    - 拖拽上传视频文件
    - 点击「启动批量发布」
 
